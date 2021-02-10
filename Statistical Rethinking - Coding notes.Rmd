@@ -175,7 +175,138 @@ dens(log.big, norm.comp=TRUE )
 #Okay... nothing actually happens here, sooo
 ```
 
-```{r 4.3 Gaussian model of height}
-# Building a linear regression model (kinda).
+```{r 4.3.1. Gaussian model of height}
+# Building a linear regression model (kinda). Mean and standard deviation describe the distribution's shape.
+
+# Loading example data:
+data(Howell1)
+d <- Howell1
+
+# Summarizing data:
+precis( d ) #If you cannot see the histograms on your system, use instead: precis(d,hist=FALSE)
+
+# All we want for now are heights of adults in the sample:
+ d2 <- d[ d$age >= 18 , ]
+ 
+ dens(d2$height)
+```
+
+```{r 4.3.2. Gaussian model of height: The model}
+
+#    h_i ∼ Normal(μ, σ)         [likelihood]
+#    μ ∼ Normal(178, 20)        [μ prior]
+#    σ ∼ Uniform(0, 50)         [σ prior]
+#The prior for μ is a broad Gaussian prior, centered on 178 cm, with 95% of probability between 178 ± 40 cm. Why 178 cm? Your author is 178 cm tall. And the range from 138 cm to 218 cm encom- passes a huge range of plausible mean heights for human populations. So domain-specific information has gone into this prior. Everyone knows something about human height and can set a reasonable and vague prior of this kind.
+
+#plot priors:
+curve( dnorm( x , 178 , 20 ) , from=100 , to=250 )
+
+#The σ prior is a truly flat prior, a uniform one, that functions just to constrain σ to have positive probability between zero and 50 cm:
+curve( dunif( x , 0 , 50 ) , from=-10 , to=60 )
+
+
+
+#it’ll help to see what these priors imply about the distribution of individual heights. The prior predictive simulation is an essential part of your modeling. (...) Every posterior is also potentially a prior for a subsequent analysis, so you can process priors just like posteriors.
+sample_mu <- rnorm( 1e4 , 178 , 20 )
+sample_sigma <- runif( 1e4 , 0 , 50 )
+prior_h <- rnorm( 1e4 , sample_mu , sample_sigma ) 
+dens( prior_h )
+
+#Let’s use simulation again to see the implied heights:
+sample_mu <- rnorm( 1e4 , 178 , 100 )
+prior_h <- rnorm( 1e4 , sample_mu , sample_sigma ) 
+dens( prior_h )
+```
+
+```{r 4.3.3. Gaussian model of height: Grid approximation of the posterior distribution}
+# The following is manual and is shown for conceptual rather than practical reasons.
+mu.list <- seq( from=150, to=160 , length.out=100 ) 
+sigma.list <- seq( from=7 , to=9 , length.out=100 ) 
+post <- expand.grid( mu=mu.list , sigma=sigma.list ) 
+post$LL <- sapply( 1:nrow(post) , function(i) sum(
+  dnorm( d2$height , post$mu[i] , post$sigma[i] , log=TRUE ) ) ) 
+post$prod <- post$LL + dnorm( post$mu , 178 , 20 , TRUE ) + 
+  dunif( post$sigma , 0 , 50 , TRUE ) 
+post$prob <- exp( post$prod - max(post$prod) )
+
+#Contour plot:
+contour_xyz( post$mu , post$sigma , post$prob )
+
+#Heat map:
+image_xyz( post$mu , post$sigma , post$prob )
+```
+
+```{r 4.3.4. Gaussian model of height: Sampling from the posterior}
+# since there are two parameters, and we want to sample combinations of them, we first randomly sample row numbers in post in proportion to the values in post$prob. Then we pull out the parameter values on those randomly sampled rows:
+sample.rows <- sample( 1:nrow(post) , size=1e4 , replace=TRUE , prob=post$prob )
+sample.mu <- post$mu[ sample.rows ] 
+sample.sigma <- post$sigma[ sample.rows ]
+
+plot( sample.mu , sample.sigma , cex=0.5 , pch=16 , col=col.alpha(rangi2,0.1) )
+
+#Now that you have these samples, you can describe the distribution of confidence in each combination of μ and σ by summarizing the samples.
+#For example, to characterize the shapes of the marginal (“marginal” here means “averaging over the other parameters.”) posterior densities of μ and σ, all we need to do is:
+dens( sample.mu ) 
+dens( sample.sigma )
+# To summarize the widths of these densities with posterior compatibility intervals:
+PI( sample.mu ) 
+PI( sample.sigma )
+
+#Or:
+mean()
+median()
+quantile()
+
+
+
+# Overthinking: Repeating with only a fraction of original data (compressed code):
+d3 <- sample( d2$height , size=20 )
+
+mu.list <- seq( from=150, to=170 , length.out=200 ) 
+sigma.list <- seq( from=4 , to=20 , length.out=200 ) 
+post2 <- expand.grid( mu=mu.list , sigma=sigma.list ) 
+post2$LL <- sapply( 1:nrow(post2) , function(i)
+  sum( dnorm( d3 , mean=post2$mu[i] , sd=post2$sigma[i] , log=TRUE ) ) )
+post2$prod <- post2$LL + dnorm( post2$mu , 178 , 20 , TRUE ) +
+  dunif( post2$sigma , 0 , 50 , TRUE )
+post2$prob <- exp( post2$prod - max(post2$prod) )
+sample2.rows <- sample( 1:nrow(post2) , size=1e4 , replace=TRUE , prob=post2$prob )
+sample2.mu <- post2$mu[ sample2.rows ] 
+sample2.sigma <- post2$sigma[ sample2.rows ] 
+plot( sample2.mu , sample2.sigma , cex=0.5 , 
+      col=col.alpha(rangi2,0.1) , 
+      xlab="mu" , ylab="sigma" , pch=16 )
+
+# You should also inspect the marginal posterior density for σ, averaging over μ, produced with:
+dens( sample2.sigma , norm.comp=TRUE )
+```
+
+```{r 4.3.5. Gaussian model of height: Finding the posterior distribution with quap}
+#Quadratic approximation
+# quap-function: "The quap function works by using the model definition you were introduced to ear- lier in this chapter. Each line in the definition has a corresponding definition in the form of R code. The engine inside quap then uses these definitions to define the posterior probability at each combination of parameter values. Then it can climb the posterior distribution and find the peak, its MAP. Finally, it estimates the quadratic curvature at the MAP to produce an approximation of the posterior distribution"
+
+#(Re)loading example data:
+data(Howell1)
+d <- Howell1
+d2 <- d[ d$age >= 18 , ]
+
+# List of (something)
+flist <- alist(
+  height ~ dnorm( mu , sigma ),
+  mu ~ dnorm( 178 , 20 ), 
+  sigma ~ dunif( 0 , 50 )
+)
+
+#Fit the model to the data in the data frame d2 with:
+m4.1 <- quap( flist , data=d2 )
+
+#Posterior distribution:
+precis( m4.1 )
+
+# Interpretation: "This means the plausibility of each value of μ, after averaging over the plausibilities of each value of σ, is given by a Gaussian distribution with mean 154.6 and standard deviation 0.4. The 5.5% and 94.5% quantiles are percentile interval boundaries, corresponding to an 89% compatibility interval. Why 89%? It’s just the default. It displays a quite wide interval, so it shows a high-probability range of parameter values. If you want another interval, such as the conventional and mindless 95%, you can use precis(m4.1,prob=0.95). But I don’t recommend 95% intervals, because readers will have a hard time not viewing them as significance tests."
+```
+
+```{r 4.3.6. Gaussian model of height: Sampling from a quap}
+
 ```
 
