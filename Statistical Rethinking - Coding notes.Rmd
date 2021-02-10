@@ -2,6 +2,11 @@
 title: "W2_Notes"
 output: html_document
 ---
+# Definitions and things to remember:
+ - Alpha, Beta, and Sigma are PARAMETERS (unobserved variables). 
+ - PRIORS are theand the distributions of the PARAMETERS (pp.94).
+
+
 
 ```{r setup, include=FALSE}
 library(rethinking)
@@ -307,6 +312,60 @@ precis( m4.1 )
 ```
 
 ```{r 4.3.6. Gaussian model of height: Sampling from a quap}
+#Variance-covariance matrix: A list of means and a matrix of variances and covariances are sufficient to describe a multi-dimensional Gaussian distribution. To see this matrix of variances and covariances, for model m4.1, use:
+vcov( m4.1 ) #it tells us how each parameter relates to every other param- eter in the posterior distribution.
+
+#A variance-covariance matrix can be factored into two elements: (1) a vector of variances for the parameters and (2) a correlation matrix that tells us how changes in any parameter lead to correlated changes in the others:
+diag( vcov( m4.1 ) ) #List of variances
+cov2cor( vcov( m4.1 ) ) # Correlation matrix. Interpretation: The entries that aren't 1 are very close to zero in this (typical) example. This indicates that learning μ tells us nothing about σ and likewise that learning σ tells us nothing about μ.
+
+# Sampeling:
+post <- extract.samples( m4.1 , n=1e4 )
+head(post) #Each value is a sample from the posterior, so the mean and standard deviation of each column will be very close to the MAP values from before. You can confirm this by summarizing the samples:
+precis(post)
+
+#Interpretation: Compare these values to the output from precis(m4.1). And you can use plot(post) to see how much they resemble the samples from the grid approximation in Figure 4.4 (page 86).
+
+```
+
+```{r 4.4. Linear prediction}
+#plot adult height and weight against one another:
+data(Howell1); d <- Howell1; d2 <- d[ d$age >= 18 , ] 
+plot( d2$height ~ d2$weight )
+```
+
+```{r 4.4.1. Linear prediction: The linear model strategy}
+# About the prior of Beta: Simulating the prior predictive distribution
+
+#The goal is to simulate heights from the model, using only the priors. First, let’s consider a range of weight values to simulate over. The range of observed weights will do fine. Then we need to simulate a bunch of lines, the lines implied by the priors for α and β:
+set.seed(2971)
+N <- 100 # 100 lines 
+a <- rnorm( N , 178 , 20 )
+b <- rnorm( N , 0 , 10 )
+#Now we have 100 pairs of α and β values. Now to plot the lines:
+plot( NULL , xlim=range(d2$weight) , ylim=c(-100,400) , 
+      xlab="weight" , ylab="height" )
+abline( h=0 , lty=2 )
+abline( h=272 , lty=1 , lwd=0.5 )
+mtext( "b ~ dnorm(0,10)" )
+xbar <- mean(d2$weight)
+for ( i in 1:N ) curve( a[i] + b[i]*(x - xbar), 
+                        from=min(d2$weight) , to=max(d2$weight) , add=TRUE, 
+                        col=col.alpha("black",0.2) )
+# Interpretation: "The pattern doesn’t look like any human population at all. It essentially says that the relationship between weight and height could be absurdly positive or negative. Before we’ve even seen the data, this is a bad model.
+
+# Here is how to do better: We know that average height increases with average weight, at least up to a point. Let’s try restricting it to positive values. The easiest way to do this is to define the prior as Log-Normal instead. Defining β as Log-Normal(0,1) means to claim that the logarithm of β has a Normal(0,1) distribution.
+b <- rlnorm( 1e4 , 0 , 1 )
+dens( b , xlim=c(0,5) , adj=0.1 )
+#Do the prior predictive simulation again, now with the Log-Normal prior:
+set.seed(2971)
+N <- 100 # 100 lines 
+a <- rnorm( N , 178 , 20 )
+b <- rlnorm( N , 0 , 1 )
+#Now try to plot again. This is much more sensible. There is still a rare impossible relationship. But nearly all lines in the joint prior for α and β are now within human reason.
+```
+
+```{r 4.4.1. Linear prediction: Finding the posterior distribution}
 
 ```
 
