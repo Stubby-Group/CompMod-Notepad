@@ -7,6 +7,15 @@ output: html_document
  - PRIORS are theand the distributions of the PARAMETERS (pp.94).
 
 
+Model definition with corresponding R-code (For the height/weight example in chapter 4):
+ -  hi ∼ Normal(μi, σ)          height ~ dnorm(mu,sigma) 
+ -  μi = α + β(xi −  ̄x)         mu <- a + b*(weight-xbar)
+ -  α ∼ Normal(178, 20)         a ~ dnorm(178,20)
+ -  β ∼ Log-Normal(0, 1)        b ~ dlnorm(0,1) 
+ -  σ ∼ Uniform(0, 50)          sigma ~ dunif(0,50)
+
+
+
 
 ```{r setup, include=FALSE}
 library(rethinking)
@@ -365,7 +374,192 @@ b <- rlnorm( N , 0 , 1 )
 #Now try to plot again. This is much more sensible. There is still a rare impossible relationship. But nearly all lines in the joint prior for α and β are now within human reason.
 ```
 
-```{r 4.4.1. Linear prediction: Finding the posterior distribution}
+```{r 4.4.2. Linear prediction: Finding the posterior distribution}
+# See the top of this rmd "Model definition with corresponding R-code". This info allows us to build a posterior approximation:
+data(Howell1); d <- Howell1; d2 <- d[ d$age >= 18 , ] # loading data again, since it's a long way back library(rethinking)
+xbar <- mean(d2$weight) # defining the average weight, x-bar 
+# fitting model:
+m4.3 <- quap( 
+  alist(
+    height ~ dnorm( mu , sigma ) , 
+    mu <- a + b*( weight - xbar ) , 
+    a ~ dnorm( 178 , 20 ) ,
+    b ~ dlnorm( 0 , 1 ) ,
+    sigma ~ dunif( 0 , 50 ) 
+    ) , data=d2 ) 
 
 ```
+
+```{r 4.4.3. Linear prediction: Interpreting the posterior distribution}
+#### Table of marginal distributions:
+ precis( m4.3 ) # interpretation (of beta): "Since β is a slope, the value 0.90 can be read as a person 1 kg heavier is expected to be 0.90 cm taller. 89% of the posterior probability lies between 0.84 and 0.97. That suggests that β values close to zero or greatly above one are highly incompatible with these data and this model. It is most certainly not evidence that the relationship between weight and height is linear, because the model only considered lines. It just says that, if you are committed to a line, then lines with a slope around 0.9 are plausible ones"
+round( vcov( m4.3 ) , 3 ) #Viewing the covariances among the parameters. Very little covariation among the parameters in this case.
+pairs(m4.3) # shows both the marginal posteriors and the covariance
+
+
+# Plotting posterior inference against the data:
+#We’ll start with just the raw data and a single line. The code below plots the raw data, computes the posterior mean values for a and b, then draws the implied line:
+plot( height ~ weight , data=d2 , col=rangi2 ) 
+post <- extract.samples( m4.3 )
+a_map <- mean(post$a)
+b_map <- mean(post$b)
+curve( a_map + b_map*(x - xbar) , add=TRUE ) 
+#Each point in this plot is a single individual. The black line is defined by the mean slope β and mean intercept α.
+
+
+
+
+
+
+#### Adding uncertainty around the mean:
+#Looking closer at some of the samples:
+post <- extract.samples( m4.3 ) 
+post[1:5,] #Each row is a correlated random sample from the joint posterior of all three parameters, using the covariances provided by vcov(m4.3). The paired values of a and b on each row define a line. The average of very many of these lines is the posterior mean line. But the scatter around that average is meaningful, because it alters our confidence in the relationship between the predictor and the outcome.
+
+#The following code extracts the first 10 cases and re-estimates the model:
+N <- 10
+dN <- d2[ 1:N , ] 
+mN <- quap(
+  alist(
+    height ~ dnorm( mu , sigma ) ,
+    mu <- a + b*( weight - mean(weight) ) , a ~ dnorm( 178 , 20 ) ,
+    b ~ dlnorm( 0 , 1 ) ,
+    sigma ~ dunif( 0 , 50 )
+    ) , data=dN )
+
+#Now let’s plot 20 of these lines, to see what the uncertainty looks like.
+ # extract 20 samples from the posterior 
+post <- extract.samples( mN , n=20 ) 
+ # display raw data and sample size
+plot( dN$weight , dN$height ,
+    xlim=range(d2$weight) , ylim=range(d2$height) ,
+    col=rangi2 , xlab="weight" , ylab="height" )
+mtext(concat("N = ",N)) 
+ # plot the lines, with transparency (looping over all 20 lines, using curve to display each)
+for ( i in 1:20 )
+  curve( post$a[i] + post$b[i]*(x-mean(dN$weight)) , col=col.alpha("black",0.3)
+         , add=TRUE ) 
+
+
+
+
+
+#### Plotting regression intervals and contours:
+#It’s more common, and often much clearer (than doing as we see above), to see the uncertainty displayed by plotting an interval or contour around the average regression line.
+#Focus for the moment on a single weight value, say 50 kilograms. You can quickly make a list of 10,000 values of μ for an individual who weighs 50 kilograms, by using your samples from the posterior:
+post <- extract.samples( m4.3 )
+mu_at_50 <- post$a + post$b * ( 50 - xbar )
+#plot the density for this vector of means:
+dens( mu_at_50 , col=rangi2 , lwd=2 , xlab="mu|weight=50" )
+#To find the 89% compatibility interval of μ at 50 kg, just use the PI command as usual:
+ PI( mu_at_50 , prob=0.89 ) #Interpretation: What these numbers mean is that the central 89% of the ways for the model to produce the data place the average height between about 159 cm and 160 cm (conditional on the model and data), assuming the weight is 50 kg.
+ 
+#we need to repeat the above calculation for every weight value on the horizontal axis, not just when it is 50 kg. We want to draw 89% intervals around the average slope.
+mu <- link( m4.3 ) #What link will do is take your quap approximation, sample from the posterior distribution, and then compute μ for each case in the data and sample from the posterior distribution.
+str(mu) #Each row is a sample from the posterior distribu- tion. The default is 1000 samples, but you can use as many or as few as you like.
+
+#We actually want something slightly different: a distribution of μ for each unique weight value on the horizontal axis.
+  # define sequence of weights to compute predictions for these values will be on the horizontal axis 
+weight.seq <- seq( from=25 , to=70 , by=1 )
+  # use link to compute mu for each sample from posterior and for each weight in weight.seq
+mu <- link( m4.3 , data=data.frame(weight=weight.seq) ) 
+str(mu) #And now there are only 46 columns in mu, because we fed it 46 different values for weight.
+
+#Plot:
+plot( height ~ weight , d2 , type="n" ) # use type="n" to hide raw data
+for ( i in 1:100 )
+  points( weight.seq , mu[i,] , pch=16 , col=col.alpha(rangi2,0.1) ) # loop over samples and plot each mu value
+
+# Finally: summarize the distribution for each weight value:
+mu.mean <- apply( mu , 2 , mean ) #Read "apply(mu,2,mean)" as "compute the mean of each column (dimension “2”) of the matrix mu".
+mu.PI <- apply( mu , 2 , PI , prob=0.89 )
+ 
+
+# IMPORTANT: You can plot these summaries on top of the data with a few lines of R code:
+# plot raw data fading out points to make line and interval more visible 
+plot( height ~ weight , data=d2 , col=col.alpha(rangi2,0.5) )
+# plot the MAP line, aka the mean mu for each weight 
+lines( weight.seq , mu.mean )
+# plot a shaded region for 89% PI 
+shade( mu.PI , weight.seq )
+
+
+
+#See page 107 for summary of the process.
+```
+
+```{r 4.4.3.5 Linear prediction: Interpreting the posterior distribution: Prediction intervals}
+# See book (p.108), idk what this is
+sim.height <- sim( m4.3 , data=list(weight=weight.seq) ) 
+str(sim.height) #matrix contains simulated heights, not distributions of plausible average height, μ.
+#Summarizing
+height.PI <- apply( sim.height , 2 , PI , prob=0.89 ) #height.PI contains the 89% posterior prediction interval of observable (according to the model) heights, across the values of weight in weight.seq.
+
+#Let’s plot everything we’ve built up: (1) the average line, (2) the shaded region of 89% plausible μ, and (3) the boundaries of the simulated heights the model expects.
+plot( height ~ weight , d2 , col=col.alpha(rangi2,0.5) ) # plotting raw data
+lines( weight.seq , mu.mean ) # drawing MAP line
+shade( mu.HPDI , weight.seq ) # drawing HPDI region for line 
+shade( height.PI , weight.seq ) # drawing PI region for simulated heights 
+# See p. 109 for smooth shade outlines
+
+```
+
+
+
+```{r 4.5.1. Curves from lines: Polynomial regression}
+data(Howell1)
+d <- Howell1
+
+plot( height ~ weight , d ) #2nd order polynomial
+
+# Step one is standardizing
+
+
+# Next, I’ll also build the square of weight_s as a separate variable:
+d$weight_s <- ( d$weight - mean(d$weight) )/sd(d$weight) 
+d$weight_s2 <- d$weight_s^2
+m4.5 <- quap(
+  alist(
+    height ~ dnorm( mu , sigma ) ,
+    mu <- a + b1*weight_s + b2*weight_s2 , a ~ dnorm( 178 , 20 ) ,
+    b1 ~ dlnorm( 0 , 1 ) ,
+    b2 ~ dnorm( 0 , 1 ) ,
+    sigma ~ dunif( 0 , 50 )
+    ) , data=d )
+
+precis( m4.5 ) #Interpretation: The parameter α (a) is still the intercept, so it tells us the expected value of height when weight is at its mean value. But it is no longer equal to the mean height in the sample, since there is no guarantee it should build a poly regression. And those β1 and β2 parameters are the linear and square components of the curve.
+
+#We’ll calculate the mean relationship and the 89% intervals of the mean and the predictions, like in the previous section.
+weight.seq <- seq( from=-2.2 , to=2 , length.out=30 )
+pred_dat <- list( weight_s=weight.seq , weight_s2=weight.seq^2 ) 
+mu <- link( m4.5 , data=pred_dat )
+mu.mean <- apply( mu , 2 , mean )
+mu.PI <- apply( mu , 2 , PI , prob=0.89 )
+sim.height <- sim( m4.5 , data=pred_dat )
+height.PI <- apply( sim.height , 2 , PI , prob=0.89 )
+
+#Now, plot:
+plot( height ~ weight_s , d , col=col.alpha(rangi2,0.5) ) 
+lines( weight.seq , mu.mean )
+shade( mu.PI , weight.seq )
+shade( height.PI , weight.seq )
+
+```
+
+```{r 4.5.2. Curves from lines: Splines}
+#In statistics, a spline is a smooth function built out of smaller, component functions.
+#B-spline (B stands for basis)
+
+#To see how B-splines work, we’ll need an example that is much wigglier—that’s a scien- tific term—than the !Kung stature data. Cherry trees blossom all over Japan in the spring each year, and the tradition of flower viewing (Hanami 花見) follows. The timing of the blossoms can vary a lot by year and century. Let’s load a thousand years of blossom dates:
+data(cherry_blossoms) 
+d <- cherry_blossoms 
+precis(d)
+
+
+```
+
+
+
+
+
 
