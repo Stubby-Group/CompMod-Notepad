@@ -103,6 +103,7 @@ for ( i in 1:N ) curve( a[i] + b[i]*(x - xbar) ,
 4M4. A sample of students is measured for height each year for 3 years. After the third year, you want to fit a linear regression predicting height using year as a predictor. Write down the mathematical model definition for this regression, using any variable names and priors you choose. Be prepared to defend your choice of priors.
 *- prior mu with some mean height depending on age of students, and a sd that may be rather large, again depending on the age of students.*
 
+
 4M5. Now suppose I remind you that every student got taller each year. Does this information lead you to change your choice of priors? How?
 *- perhaps a prior that somehow indicates that the development can only go up, IDK if that would be a uniform or exponential prior. Hmm really makes you think.*
 
@@ -158,3 +159,11 @@ Individual     weight                           expected height       89% interv
 4H6. Simulate the prior predictive distribution for the cherry blossom spline in the chapter. Adjust the prior on the weights and observe what happens. What do you think the prior on the weights is doing?
 
 4H8. The cherry blossom spline in the chapter used an intercept α,but technically it doesn’t require one. The first basis functions could substitute for the intercept. Try refitting the cherry blossom spline without the intercept. What else about the model do you need to change to make this work?
+
+
+
+```{r cheat sheets}
+# https://github.com/cavaunpeu/statistical-rethinking/blob/master/chapter-4/homework.R
+# https://sr2-solutions.wjakethompson.com/linear-models.html#exercises-1
+```
+
